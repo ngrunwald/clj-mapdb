@@ -6,4 +6,5 @@
   :dependencies [[org.clojure/clojure "1.6.0"]
                  [org.mapdb/mapdb "1.0.6"]
                  [potemkin "0.3.11"]
-                 [com.taoensso/nippy "2.7.0"]])
+                 [com.taoensso/nippy "2.7.0"]
+                 [im.chit/iroh "0.1.11"]])

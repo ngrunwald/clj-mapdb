@@ -2,7 +2,8 @@
   (:import [org.mapdb DBMaker DB])
   (:require [clojure.java.io :as io]
             [potemkin [types :refer [definterface+]]]
-            [clojure.string :as str]))
+            [clojure.string :as str]
+            [iroh.core :as iroh :refer [.?]]))
 
 (def mapdb-types
   {:cache         {:ctor (fn [size] (DBMaker/newCache size)) :args ["cache size"]}
@@ -13,47 +14,77 @@
    :memory-direct {:ctor #(DBMaker/newMemoryDirectDB)}
    :temp-file     {:ctor #(DBMaker/newTempFileDB)}})
 
-(def mapdb-options
-  {:async-write-enable      {:ctor (fn [mkr v] (if v (.asyncWriteEnable mkr))) :type "Boolean"}
-   :async-write-flush-delay {:ctor (fn [mkr v] (if v (.asyncWriteFlushDelay mkr (int v)))) :type "Integer"}
-   :async-write-queue-size  {:ctor (fn [mkr v] (if v (.asyncWriteQueueSize mkr (int v)))) :type "Integer"}
-   :cache-disable           {:ctor (fn [mkr v] (if v (.cacheDisable mkr))) :type "Boolean"}
-   :cache-hard-ref-enable   {:ctor (fn [mkr v] (if v (.cacheHardRefEnable mkr))) :type "Boolean"}})
+(defn dasherize
+  [s]
+  (-> s
+      (str/trim)
+      (str/replace #"([a-z])([A-Z]{1,}?)([A-Z])([a-z])" (fn [[_ a b c d]] (str a "-" (str/lower-case b) "-" (str/lower-case c) d)))
+      (str/replace #"([A-Z])([a-z])" (fn [[_ a b]] (str "-" (str/lower-case a) b)))))
+
+(defn get-configure-methods
+  [klass]
+  (filter #(and
+            (not (contains? (:modifiers %) :static))
+            (not (contains? (:modifiers %) :protected))
+            (not (contains? (:modifiers %) :constructor))
+            (not (.startsWith (:name %) "_"))
+            (= (:type %) klass))
+          (.? klass)))
+
+(defn make-options-table
+  [klass]
+  (let [mets (get-configure-methods klass)
+        grp (group-by (comp keyword dasherize :name) mets)]
+    grp))
+
+(def db-maker-options (make-options-table org.mapdb.DBMaker))
 
 (def coll-types
   {:hash-map {:ctor (fn [mdb label] (.createHashMap mdb (name label)))
-              :options {:counter-enable      {:ctor (fn [mkr v] (if v (.counterEnable mkr))) :type "Boolean"}
-                        :expire-after-access {:ctor (fn [mkr v] (if v (.expireAfterAccess mkr (long v))))
-                                              :type "Long"}
-                        :expire-after-write  {:ctor (fn [mkr v] (if v (.expireAfterWrite mkr (long v))))
-                                              :type "Long"}
-                        :expire-max-size     {:ctor (fn [mkr v] (if v (.expireMaxSize mkr (long v))))
-                                              :type "Long"}
-                        :expire-store-size   {:ctor (fn [mkr v] (if v (.expireStoreSize mkr (double v))))
-                                              :type "Double"}}}
-   :tree-map {:ctor (fn [mdb label] (.createTreeMap mdb (name label)))}})
+              :options (make-options-table org.mapdb.DB$HTreeMapMaker)}
+   :tree-map {:ctor (fn [mdb label] (.createTreeMap mdb (name label)))
+              :options (make-options-table org.mapdb.DB$BTreeMapMaker)}
+   :hash-set {:ctor (fn [mdb label] (.createHashSet mdb (name label)))
+              :options (make-options-table org.mapdb.DB$HTreeSetMaker)}
+   :tree-set {:ctor (fn [mdb label] (.createTreeSet mdb (name label)))
+              :options (make-options-table org.mapdb.DB$BTreeSetMaker)}})
+
+(defn apply-configurator!
+  [f maker v]
+  (if (= 1 (count (:params f)))
+    (when v (f maker))
+    (apply f maker v)))
 
 (defn configure-maker!
   [refs maker opts]
   (loop [todo opts]
     (if-let [[k v] (first todo)]
-      (let [{:keys [ctor]} (get refs (keyword k))]
-        (when ctor
-          (ctor maker v))
+      (let [fs (get refs (keyword k))]
+        (if (= 1 (count fs))
+          (apply-configurator! (first fs) maker v)
+          (let [matching (filter (fn [{:keys [params]}]
+                                   (let [param (first params)
+                                         vl (first v)]
+                                     (if (instance? Class param)
+                                       (instance? param vl)
+                                       (number? vl))))
+                                 fs)]
+            (when-let [f (first matching)]
+              (apply-configurator! f maker v))))
         (recur (rest todo)))
       maker)))
 
 (definterface+ IMapDB
-  (db [this] "Returns the underlying db")
-  (close! [this] "Closes this db")
-  (closed? [this] "Returns whether this db is closed")
-  (commit! [this] "Commits all pending changes on this db")
+  (db        [this] "Returns the underlying db")
+  (close!    [this] "Closes this db")
+  (closed?   [this] "Returns whether this db is closed")
+  (commit!   [this] "Commits all pending changes on this db")
   (rollback! [this] "Rollbacks all pending changes on this db")
-  (compact! [this] "Compacts this DB to reclaim space")
-  (rename! [this old-name new-name] "renames this collection")
-  (snapshot [this] "Returns a read-only snapshot view of this db")
-  (storage [this] "Returns the storage type for this db")
-  (options [this] "Returns the options this db was created with"))
+  (compact!  [this] "Compacts this DB to reclaim space")
+  (rename!   [this old-name new-name] "Renames this collection")
+  (snapshot  [this] "Returns a read-only snapshot view of this db")
+  (storage   [this] "Returns the storage type for this db")
+  (options   [this] "Returns the options this db was created with"))
 
 (defn create-collection!
   [mdb collection-type label opts]
@@ -66,14 +97,14 @@
 
 (deftype MapDB [db storage options]
   IMapDB
-  (db [this] db)
-  (close! [this] (.close db) this)
-  (closed? [this] (.isClosed db))
-  (commit! [this] (.commit db) this)
+  (db        [this] db)
+  (close!    [this] (.close db) this)
+  (closed?   [this] (.isClosed db))
+  (commit!   [this] (.commit db) this)
   (rollback! [this] (.rollback db) this)
-  (compact! [this] (.compact db) this)
-  (storage [this] storage)
-  (options [this] options)
+  (compact!  [this] (.compact db) this)
+  (storage   [this] storage)
+  (options   [this] options)
   clojure.lang.Counted
   (count [this]
     (count (.getAll db)))
@@ -110,7 +141,7 @@
                                    {:db-type db-type :arg arg :options opts}))
                    (ctor arg))
                  (ctor))]
-     (configure-maker! mapdb-options maker opts)
+     (configure-maker! db-maker-options maker opts)
      (->MapDB (.make maker) db-type opts)))
   ([db-type other] (if (map? other) (mapdb db-type nil other) (mapdb other {})))
   ([db-type] (mapdb db-type nil {}))
