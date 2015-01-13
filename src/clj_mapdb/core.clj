@@ -7,6 +7,16 @@
             [iroh.core :as iroh :refer [.?]]
             [clojure.edn :as edn]))
 
+(def edn-serializer
+  (reify
+    org.mapdb.Serializer
+    (serialize [this out obj]
+      (.writeUTF out (pr-str obj)))
+    (deserialize [this in available]
+      (edn/read-string (.readUTF in)))
+    (fixedSize [this] -1)
+    Serializable))
+
 (def mapdb-types
   {:cache         {:ctor (fn [size] (DBMaker/newCache size)) :args ["cache size"]}
    :cache-direct  {:ctor (fn [size] (DBMaker/newCacheDirect size)) :args ["cache size"]}
@@ -44,14 +54,33 @@
 (def db-maker-options (make-options-table org.mapdb.DBMaker))
 
 (def coll-types
-  {:hash-map {:ctor (fn [mdb label] (.createHashMap mdb (name label)))
-              :options (make-options-table org.mapdb.DB$HTreeMapMaker)}
-   :tree-map {:ctor (fn [mdb label] (.createTreeMap mdb (name label)))
-              :options (make-options-table org.mapdb.DB$BTreeMapMaker)}
-   :hash-set {:ctor (fn [mdb label] (.createHashSet mdb (name label)))
-              :options (make-options-table org.mapdb.DB$HTreeSetMaker)}
-   :tree-set {:ctor (fn [mdb label] (.createTreeSet mdb (name label)))
-              :options (make-options-table org.mapdb.DB$BTreeSetMaker)}})
+  {:hash-map       {:ctor (fn [mdb label] (.createHashMap mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$HTreeMapMaker)}
+   :tree-map       {:ctor (fn [mdb label] (.createTreeMap mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$BTreeMapMaker)}
+   :hash-set       {:ctor (fn [mdb label] (.createHashSet mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$HTreeSetMaker)}
+   :tree-set       {:ctor (fn [mdb label] (.createTreeSet mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$BTreeSetMaker)}
+   :int            {:ctor (fn [mdb label {:keys [init]}] (.createAtomicInteger mdb (name label) init))}
+   :long           {:ctor (fn [mdb label {:keys [init]}] (.createAtomicLong mdb (name label) init))}
+   :bool           {:ctor (fn [mdb label {:keys [init]}] (.createAtomicBoolean mdb (name label) init))}
+   :string         {:ctor (fn [mdb label {:keys [init]}] (.createAtomicString mdb (name label) init))}
+   :var            {:ctor (fn [mdb label {:keys [init serializer]
+                                          :or   {serializer edn-serializer}}]
+                            (.createAtomicVar mdb (name label) init serializer))}
+   :queue          {:ctor (fn [mdb label {:keys [serializer locks]
+                                          :or {serializer edn-serializer
+                                               locks false}}]
+                            (.createQueue mdb (name label) serializer locks))}
+   :stack          {:ctor (fn [mdb label {:keys [serializer locks]
+                                          :or {serializer edn-serializer
+                                               locks false}}]
+                            (.createStack mdb (name label) serializer locks))}
+   :circular-queue {:ctor (fn [mdb label {:keys [serializer size]
+                                          :or {serializer edn-serializer
+                                               locks false}}]
+                            (.createCircularQueue mdb (name label) serializer size))}})
 
 (defn apply-configurator!
   [f maker v]
@@ -83,13 +112,16 @@
       maker)))
 
 (defn create-collection!
-  [mdb collection-type label opts]
-  (if-let [old-coll (.get mdb (name label))]
-    old-coll
-    (let [{:keys [ctor options]} #spy/d (get coll-types collection-type)
-          maker (ctor mdb label)]
-      (configure-maker! options maker opts)
-      (.make maker))))
+  ([mdb collection-type label opts]
+   (if-let [old-coll (.get mdb (name label))]
+     old-coll
+     (let [{:keys [ctor options]} (get coll-types collection-type)]
+       (if options
+         (let [maker (ctor mdb label)]
+           (configure-maker! options maker opts)
+           (.make maker))
+         (ctor mdb label opts)))))
+  ([mdb collection-type label] (create-collection! mdb collection-type label {})))
 
 (defn create-db
   ([db-type arg opts]
@@ -107,19 +139,9 @@
   ([db-type] (create-db db-type nil {}))
   ([] (create-db :heap nil {})))
 
-(def edn-serializer
-  (reify
-    org.mapdb.Serializer
-    (serialize [this out obj]
-      (.writeUTF out (pr-str obj)))
-    (deserialize [this in available]
-      (edn/read-string (.readUTF in)))
-    (fixedSize [this] -1)
-    Serializable))
-
 (definterface+ MapListener
-  (add [this k new-val] "Called when a key is created")
-  (remove [this k old-val] "Called when a key is deleted")
+  (add    [this k new-val] "Called when a key is created")
+  (delete [this k old-val] "Called when a key is deleted")
   (update [this k old-val new-val] "Called when a value is updated"))
 
 (defn map-listener
@@ -128,7 +150,7 @@
     (reify org.mapdb.Bind$MapListener
       (update [this k old-val new-val] (cond
                                          (nil? old-val) (.add f k new-val)
-                                         (nil? new-val) (.remove f k old-val)
+                                         (nil? new-val) (.delete f k old-val)
                                          :else (.update f k old-val new-val))))
     (reify org.mapdb.Bind$MapListener
       (update [this k old-val new-val] (f k old-val new-val)))))
