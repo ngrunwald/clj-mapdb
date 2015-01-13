@@ -7,7 +7,8 @@
             [iroh.core :as iroh :refer [.?]]
             [clojure.edn :as edn]))
 
-(def edn-serializer
+(defn edn-serializer
+  []
   (reify
     org.mapdb.Serializer
     (serialize [this out obj]
@@ -16,6 +17,10 @@
       (edn/read-string (.readUTF in)))
     (fixedSize [this] -1)
     Serializable))
+
+(defn base-serializer
+  []
+  (org.mapdb.SerializerBase.))
 
 (def mapdb-types
   {:cache         {:ctor (fn [size] (DBMaker/newCache size)) :args ["cache size"]}
@@ -67,25 +72,23 @@
    :bool           {:ctor (fn [mdb label {:keys [init]}] (.createAtomicBoolean mdb (name label) init))}
    :string         {:ctor (fn [mdb label {:keys [init]}] (.createAtomicString mdb (name label) init))}
    :var            {:ctor (fn [mdb label {:keys [init serializer]
-                                          :or   {serializer edn-serializer}}]
+                                          :or {serializer (edn-serializer)}}]
                             (.createAtomicVar mdb (name label) init serializer))}
    :queue          {:ctor (fn [mdb label {:keys [serializer locks]
-                                          :or {serializer edn-serializer
-                                               locks false}}]
+                                          :or {serializer (edn-serializer)
+                                               locking? false}}]
                             (.createQueue mdb (name label) serializer locks))}
    :stack          {:ctor (fn [mdb label {:keys [serializer locks]
-                                          :or {serializer edn-serializer
-                                               locks false}}]
+                                          :or {serializer (edn-serializer)
+                                               locking? false}}]
                             (.createStack mdb (name label) serializer locks))}
    :circular-queue {:ctor (fn [mdb label {:keys [serializer size]
-                                          :or {serializer edn-serializer
-                                               locks false}}]
+                                          :or {serializer (edn-serializer)
+                                               locking? false}}]
                             (.createCircularQueue mdb (name label) serializer size))}})
 
 (defn apply-configurator!
   [f maker v]
-  #spy/d v
-  #spy/d f
   (if (= 1 #spy/d (count (:params f)))
     (when v (f maker))
     (if (sequential? v)
