@@ -89,7 +89,7 @@
 
 (defn apply-configurator!
   [f maker v]
-  (if (= 1 #spy/d (count (:params f)))
+  (if (= 1 (count (:params f)))
     (when v (f maker))
     (if (sequential? v)
       (apply f maker v)
