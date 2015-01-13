@@ -1,5 +1,6 @@
 (ns clj-mapdb.core
-  (:import [org.mapdb DBMaker DB])
+  (:import [org.mapdb DBMaker DB]
+           [java.io DataInput DataOutput Serializable])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [iroh.core :as iroh :refer [.?]]))
@@ -52,9 +53,13 @@
 
 (defn apply-configurator!
   [f maker v]
-  (if (= 1 (count (:params f)))
+  #spy/d v
+  #spy/d f
+  (if (= 1 #spy/d (count (:params f)))
     (when v (f maker))
-    (apply f maker v)))
+    (if (sequential? v)
+      (apply f maker v)
+      (f maker v))))
 
 (defn configure-maker!
   [refs maker opts]
@@ -79,7 +84,7 @@
   [mdb collection-type label opts]
   (if-let [old-coll (.get mdb (name label))]
     old-coll
-    (let [{:keys [ctor options]} (get coll-types collection-type)
+    (let [{:keys [ctor options]} #spy/d (get coll-types collection-type)
           maker (ctor mdb label)]
       (configure-maker! options maker opts)
       (.make maker))))
@@ -99,3 +104,13 @@
   ([db-type other] (if (map? other) (create-db db-type nil other) (create-db other {})))
   ([db-type] (create-db db-type nil {}))
   ([] (create-db :heap nil {})))
+
+(def clj-serializer
+  (reify
+    org.mapdb.Serializer
+    (serialize [this out obj]
+      (.writeUTF out (pr-str obj)))
+    (deserialize [this in available]
+      (read-string (.readUTF in)))
+    (fixedSize [this] -1)
+    Serializable))
