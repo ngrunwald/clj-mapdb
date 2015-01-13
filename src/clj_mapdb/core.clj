@@ -3,7 +3,9 @@
            [java.io DataInput DataOutput Serializable])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
-            [iroh.core :as iroh :refer [.?]]))
+            [potemkin [types :refer [definterface+]]]
+            [iroh.core :as iroh :refer [.?]]
+            [clojure.edn :as edn]))
 
 (def mapdb-types
   {:cache         {:ctor (fn [size] (DBMaker/newCache size)) :args ["cache size"]}
@@ -105,12 +107,36 @@
   ([db-type] (create-db db-type nil {}))
   ([] (create-db :heap nil {})))
 
-(def clj-serializer
+(def edn-serializer
   (reify
     org.mapdb.Serializer
     (serialize [this out obj]
       (.writeUTF out (pr-str obj)))
     (deserialize [this in available]
-      (read-string (.readUTF in)))
+      (edn/read-string (.readUTF in)))
     (fixedSize [this] -1)
     Serializable))
+
+(definterface+ MapListener
+  (add [this k new-val] "Called when a key is created")
+  (remove [this k old-val] "Called when a key is deleted")
+  (update [this k old-val new-val] "Called when a value is updated"))
+
+(defn map-listener
+  [f]
+  (if (instance? MapListener f)
+    (reify org.mapdb.Bind$MapListener
+      (update [this k old-val new-val] (cond
+                                         (nil? old-val) (.add f k new-val)
+                                         (nil? new-val) (.remove f k old-val)
+                                         :else (.update f k old-val new-val))))
+    (reify org.mapdb.Bind$MapListener
+      (update [this k old-val new-val] (f k old-val new-val)))))
+
+(defn add-listener
+  [coll listener]
+  (.modificationListenerAdd coll listener))
+
+(defn remove-listener
+  [coll listener]
+  (.modificationListenerRemove coll listener))
