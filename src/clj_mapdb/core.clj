@@ -22,6 +22,14 @@
   []
   (org.mapdb.SerializerBase.))
 
+(defn base-btree-key-serializer
+  []
+  (org.mapdb.BTreeKeySerializer$BasicKeySerializer. (base-serializer)))
+
+(defn edn-btree-key-serializer
+  []
+  (org.mapdb.BTreeKeySerializer$BasicKeySerializer. (edn-serializer)))
+
 (def mapdb-types
   {:cache         {:ctor (fn [size] (DBMaker/newCache size)) :args ["cache size"]}
    :cache-direct  {:ctor (fn [size] (DBMaker/newCacheDirect size)) :args ["cache size"]}
