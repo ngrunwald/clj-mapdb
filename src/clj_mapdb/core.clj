@@ -50,6 +50,13 @@
             (= (:type %) klass))
           (.? klass)))
 
+(defn coll->iterator
+  [coll]
+  (if (instance? java.util.Iterator coll)
+    coll
+    (let [tuples (map (fn [[k v]] (Fun$Tuple2. k v)) (seq coll))]
+      (.iterator tuples))))
+
 (defn make-options-table
   [klass]
   (let [mets (get-configure-methods klass)
@@ -64,7 +71,8 @@
    :tree-map       {:ctor (fn [mdb label] (.createTreeMap mdb (name label)))
                     :options (make-options-table org.mapdb.DB$BTreeMapMaker)
                     :finalizers {:long (fn [mkr] (.makeLongMap mkr))
-                                 :string (fn [mkr] (.makeStringMap mkr))}}
+                                 :string (fn [mkr] (.makeStringMap mkr))}
+                    :formatters {:pump-source coll->iterator}}
    :hash-set       {:ctor (fn [mdb label] (.createHashSet mdb (name label)))
                     :options (make-options-table org.mapdb.DB$HTreeSetMaker)}
    :tree-set       {:ctor (fn [mdb label] (.createTreeSet mdb (name label)))
@@ -121,19 +129,25 @@
   ([mdb collection-type label opts]
    (if-let [old-coll (.get mdb (name label))]
      old-coll
-     (let [{:keys [ctor options finalizers]} (get coll-types collection-type)
+     (let [{:keys [ctor options finalizers formatters]} (get coll-types collection-type)
            finalizer (or
                       (first
                        (for [[k v] opts
                              :let [finalizer (get finalizers k)]
                              :when finalizer]
                          finalizer))
-                      (fn [mkr] (.make mkr)))]
+                      (fn [mkr] (.make mkr)))
+           formatted-opts (reduce
+                           (fn [acc [k v]]
+                             (if-let [formatter (get formatters k)]
+                               (assoc acc k (formatter v))
+                               acc))
+                           opts opts)]
        (if options
          (let [maker (ctor mdb label)]
-           (configure-maker! options maker opts)
+           (configure-maker! options maker formatted-opts)
            (finalizer maker))
-         (ctor mdb label opts)))))
+         (ctor mdb label formatted-opts)))))
   ([mdb collection-type label] (create-collection! mdb collection-type label {})))
 
 (defn create-db
@@ -167,17 +181,6 @@
                                          :else (.update f k old-val new-val))))
     (reify org.mapdb.Bind$MapListener
       (update [this k old-val new-val] (f k old-val new-val)))))
-
-(defn pump-into-tree-map
-  ([db label coll opts]
-   (if (.get db (name label))
-     (throw (RuntimeException. (format "A collection called [%s] already exists" (name label))))
-     (let [tuples (map (fn [[k v]] (Fun$Tuple2. k v)) (seq coll))
-           it (.iterator tuples)
-           pump-opts {:pump-source it :pump-presort 1000}
-           bmap (create-collection! db :tree-map label (merge pump-opts opts))]
-       bmap)))
-  ([db label coll] (pump-into-tree-map db label coll {})))
 
 (defn add-listener
   [coll listener]
