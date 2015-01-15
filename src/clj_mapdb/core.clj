@@ -160,7 +160,7 @@
 
 (defn create-db
   ([db-type arg opts]
-   (let [{:keys [ctor args finalizers]} (mapdb-types (keyword db-type))
+   (let [{:keys [ctor args]} (mapdb-types (keyword db-type))
          arity (count args)
          maker (if (= 1 arity)
                  (if (nil? arg)
@@ -169,7 +169,9 @@
                    (ctor arg))
                  (ctor))]
      (configure-maker! db-maker-options maker opts)
-     (.make maker)))
+     (if (:transactional? opts)
+       (.makeTxMaker maker)
+       (.make maker))))
   ([db-type other] (if (map? other) (create-db db-type nil other) (create-db other {})))
   ([db-type] (create-db db-type nil {}))
   ([] (create-db :heap nil {})))
@@ -197,3 +199,16 @@
 (defn remove-listener
   [coll listener]
   (.modificationListenerRemove coll listener))
+
+(defmacro with-tx
+  [[tx tx-maker] & body]
+  `(let [~(symbol tx) (.makeTx ~tx-maker)]
+     (try
+       (let [return# ~@body]
+         (.commit ~(symbol tx))
+         return#)
+       (catch Exception e#
+         (.rollback ~(symbol tx))
+         (throw e#))
+       (finally
+         (.close ~(symbol tx))))))
