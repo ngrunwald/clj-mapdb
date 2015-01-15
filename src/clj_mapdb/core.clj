@@ -169,7 +169,7 @@
                    (ctor arg))
                  (ctor))]
      (configure-maker! db-maker-options maker opts)
-     (if (:transactional? opts)
+     (if (:fully-transactional? opts)
        (.makeTxMaker maker)
        (.make maker))))
   ([db-type other] (if (map? other) (create-db db-type nil other) (create-db other {})))
