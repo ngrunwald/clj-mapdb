@@ -204,11 +204,14 @@
   [[tx tx-maker] & body]
   `(let [~(symbol tx) (.makeTx ~tx-maker)]
      (try
-       (let [return# ~@body]
-         (.commit ~(symbol tx))
+       (let [return# (do ~@body)]
+         (when (not (.isClosed ~(symbol tx)))
+           (.commit ~(symbol tx)))
          return#)
        (catch Exception e#
-         (.rollback ~(symbol tx))
+         (when (not (.isClosed ~(symbol tx)))
+           (.rollback ~(symbol tx)))
          (throw e#))
        (finally
-         (.close ~(symbol tx))))))
+         (when (not (.isClosed ~(symbol tx)))
+           (.close ~(symbol tx)))))))

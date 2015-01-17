@@ -6,6 +6,23 @@
 
 (expect org.mapdb.DB db)
 
-(def hmap (create-collection! db :hash-map "test1" {:counter-enable true}))
+(def hmap (create-collection! db :tree-map "test1" {:counter-enable true}))
 
-(expect org.mapdb.HTreeMap (.get db "test1"))
+(expect org.mapdb.BTreeMap (.get db "test1"))
+
+(def tx-mkr (create-db :memory {:cache-disable true :fully-transactional? true}))
+
+(expect {:foo 42} (with-tx [tx1 tx-mkr]
+                    (create-collection! tx1 :tree-map "test1" {:counter-enable true})
+                    (let [coll (.get tx1 "test1")]
+                      (.put coll :foo 42)
+                      (into {} coll))))
+
+(expect Exception (with-tx [tx2 tx-mkr]
+                    (let [coll (.get tx2 "test1")]
+                      (.put coll "bar" 84))
+                    (throw (Exception.))))
+
+(expect 1 (with-tx [tx3 tx-mkr]
+            (let [coll (.get tx3 "test1")]
+              (count (.keySet coll)))))
