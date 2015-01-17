@@ -1,7 +1,11 @@
 (ns clj-mapdb.core-test
-  (:require [clojure.test :refer :all]
-            [clj-mapdb.core :refer :all]))
+  (:require [clj-mapdb.core :refer :all]
+            [expectations :refer :all]))
 
-(deftest a-test
-  (testing "FIXME, I fail."
-    (is (= 0 1))))
+(def db (create-db :memory {:cache-disable true}))
+
+(expect org.mapdb.DB db)
+
+(def hmap (create-collection! db :hash-map "test1" {:counter-enable true}))
+
+(expect org.mapdb.HTreeMap (.get db "test1"))

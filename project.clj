@@ -7,4 +7,6 @@
                  [org.mapdb/mapdb "1.0.6"]
                  [potemkin "0.3.11"]
                  [com.taoensso/nippy "2.7.0"]
-                 [im.chit/iroh "0.1.11"]])
+                 [im.chit/iroh "0.1.11"]
+                 [expectations "2.0.9"]]
+  :plugins [[lein-expectations "0.0.7"]])
