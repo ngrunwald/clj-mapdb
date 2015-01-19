@@ -7,8 +7,6 @@
             [iroh.core :as iroh :refer [.?]]
             [clojure.edn :as edn]))
 
-(set! *warn-on-reflection* true)
-
 (defn edn-serializer
   []
   (reify
@@ -204,16 +202,19 @@
 
 (defmacro with-tx
   [[tx tx-maker] & body]
-  `(let [~(symbol tx) (.makeTx ~tx-maker)]
-     (try
-       (let [return# (do ~@body)]
-         (when (not (.isClosed ~(symbol tx)))
-           (.commit ~(symbol tx)))
-         return#)
-       (catch Exception e#
-         (when (not (.isClosed ~(symbol tx)))
-           (.rollback ~(symbol tx)))
-         (throw e#))
-       (finally
-         (when (not (.isClosed ~(symbol tx)))
-           (.close ~(symbol tx)))))))
+  (let [tx-symb (with-meta (symbol tx) {:tag 'org.mapdb.DB})
+        tx-mkr-symb (with-meta (gensym tx-maker) {:tag 'org.mapdb.TxMaker})]
+    `(let [~tx-mkr-symb ~tx-maker
+           ~tx-symb (.makeTx ~tx-mkr-symb)]
+       (try
+         (let [return# (do ~@body)]
+           (when (not (.isClosed ~tx-symb))
+             (.commit ~tx-symb))
+           return#)
+         (catch Exception e#
+           (when (not (.isClosed ~tx-symb))
+             (.rollback ~tx-symb))
+           (throw e#))
+         (finally
+           (when (not (.isClosed ~tx-symb))
+             (.close ~tx-symb)))))))
