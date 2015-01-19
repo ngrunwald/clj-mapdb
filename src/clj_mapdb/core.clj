@@ -7,6 +7,8 @@
             [iroh.core :as iroh :refer [.?]]
             [clojure.edn :as edn]))
 
+(set! *warn-on-reflection* true)
+
 (defn edn-serializer
   []
   (reify
@@ -54,7 +56,7 @@
             (not (contains? (:modifiers %) :static))
             (not (contains? (:modifiers %) :protected))
             (not (contains? (:modifiers %) :constructor))
-            (not (.startsWith (:name %) "_"))
+            (not (.startsWith ^String (:name %) "_"))
             (= (:type %) klass))
           (.? klass)))
 
@@ -62,7 +64,7 @@
   [coll]
   (if (instance? java.util.Iterator coll)
     coll
-    (let [tuples (map (fn [[k v]] (Fun$Tuple2. k v)) (seq coll))]
+    (let [^clojure.lang.ASeq tuples (map (fn [[k v]] (Fun$Tuple2. k v)) (seq coll))]
       (.iterator tuples))))
 
 (defn make-options-table
@@ -74,35 +76,35 @@
 (def db-maker-options (make-options-table org.mapdb.DBMaker))
 
 (def coll-types
-  {:hash-map       {:ctor (fn [mdb label] (.createHashMap mdb (name label)))
+  {:hash-map       {:ctor (fn [^DB mdb label] (.createHashMap mdb (name label)))
                     :options (make-options-table org.mapdb.DB$HTreeMapMaker)}
-   :tree-map       {:ctor (fn [mdb label] (.createTreeMap mdb (name label)))
+   :tree-map       {:ctor (fn [^DB mdb label] (.createTreeMap mdb (name label)))
                     :options (make-options-table org.mapdb.DB$BTreeMapMaker)
-                    :finalizers {:long (fn [mkr] (.makeLongMap mkr))
-                                 :string (fn [mkr] (.makeStringMap mkr))}
+                    :finalizers {:long (fn [^org.mapdb.DB$BTreeMapMaker mkr] (.makeLongMap mkr))
+                                 :string (fn [^org.mapdb.DB$BTreeMapMaker mkr] (.makeStringMap mkr))}
                     :formatters {:pump-source coll->iterator}}
-   :hash-set       {:ctor (fn [mdb label] (.createHashSet mdb (name label)))
+   :hash-set       {:ctor (fn [^DB mdb label] (.createHashSet mdb (name label)))
                     :options (make-options-table org.mapdb.DB$HTreeSetMaker)}
-   :tree-set       {:ctor (fn [mdb label] (.createTreeSet mdb (name label)))
+   :tree-set       {:ctor (fn [^DB mdb label] (.createTreeSet mdb (name label)))
                     :options (make-options-table org.mapdb.DB$BTreeSetMaker)}
-   :int            {:ctor (fn [mdb label {:keys [init]}] (.createAtomicInteger mdb (name label) init))}
-   :long           {:ctor (fn [mdb label {:keys [init]}] (.createAtomicLong mdb (name label) init))}
-   :bool           {:ctor (fn [mdb label {:keys [init]}] (.createAtomicBoolean mdb (name label) init))}
-   :string         {:ctor (fn [mdb label {:keys [init]}] (.createAtomicString mdb (name label) init))}
-   :var            {:ctor (fn [mdb label {:keys [init serializer]
-                                          :or {serializer (edn-serializer)}}]
+   :int            {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicInteger mdb (name label) init))}
+   :long           {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicLong mdb (name label) init))}
+   :bool           {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicBoolean mdb (name label) init))}
+   :string         {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicString mdb (name label) init))}
+   :var            {:ctor (fn [^DB mdb label {:keys [init serializer]
+                                              :or {serializer (edn-serializer)}}]
                             (.createAtomicVar mdb (name label) init serializer))}
-   :queue          {:ctor (fn [mdb label {:keys [serializer locks]
-                                          :or {serializer (edn-serializer)
-                                               locking? false}}]
+   :queue          {:ctor (fn [^DB mdb label {:keys [serializer locks]
+                                              :or {serializer (edn-serializer)
+                                                   locking? false}}]
                             (.createQueue mdb (name label) serializer locks))}
-   :stack          {:ctor (fn [mdb label {:keys [serializer locks]
-                                          :or {serializer (edn-serializer)
-                                               locking? false}}]
+   :stack          {:ctor (fn [^DB mdb label {:keys [serializer locks]
+                                              :or {serializer (edn-serializer)
+                                                   locking? false}}]
                             (.createStack mdb (name label) serializer locks))}
-   :circular-queue {:ctor (fn [mdb label {:keys [serializer size]
-                                          :or {serializer (edn-serializer)
-                                               locking? false}}]
+   :circular-queue {:ctor (fn [^DB mdb label {:keys [serializer size]
+                                              :or {serializer (edn-serializer)
+                                                   locking? false}}]
                             (.createCircularQueue mdb (name label) serializer size))}})
 
 (defn apply-configurator!
@@ -134,7 +136,7 @@
       maker)))
 
 (defn create-collection!
-  ([mdb collection-type label opts]
+  ([^DB mdb collection-type label opts]
    (if-let [old-coll (.get mdb (name label))]
      old-coll
      (let [{:keys [ctor options finalizers formatters]} (get coll-types collection-type)
@@ -162,12 +164,12 @@
   ([db-type arg opts]
    (let [{:keys [ctor args]} (mapdb-types (keyword db-type))
          arity (count args)
-         maker (if (= 1 arity)
-                 (if (nil? arg)
-                   (throw (ex-info (format "Missing argument for type %s => %s" db-type (first args))
-                                   {:db-type db-type :arg arg :options opts}))
-                   (ctor arg))
-                 (ctor))]
+         ^org.mapdb.DBMaker maker (if (= 1 arity)
+                                    (if (nil? arg)
+                                      (throw (ex-info (format "Missing argument for type %s => %s" db-type (first args))
+                                                      {:db-type db-type :arg arg :options opts}))
+                                      (ctor arg))
+                                    (ctor))]
      (configure-maker! db-maker-options maker opts)
      (if (:fully-transactional? opts)
        (.makeTxMaker maker)
@@ -186,9 +188,9 @@
   (if (instance? MapListener f)
     (reify org.mapdb.Bind$MapListener
       (update [this k old-val new-val] (cond
-                                         (nil? old-val) (.add f k new-val)
-                                         (nil? new-val) (.delete f k old-val)
-                                         :else (.update f k old-val new-val))))
+                                         (nil? old-val) (.add ^MapListener f k new-val)
+                                         (nil? new-val) (.delete ^MapListener f k old-val)
+                                         :else (.update ^MapListener f k old-val new-val))))
     (reify org.mapdb.Bind$MapListener
       (update [this k old-val new-val] (f k old-val new-val)))))
 
