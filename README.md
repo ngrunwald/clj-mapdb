@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/ngrunwald/clj-mapdb.svg)](https://travis-ci.org/ngrunwald/clj-mapdb)
+
 # clj-mapdb
 
 A Clojure idiomatic wrapper for [MapDB](http://www.mapdb.org/) embedded database. It aims at provided persistent datastructures disguised as transient Clojure collections.
