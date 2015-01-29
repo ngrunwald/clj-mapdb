@@ -1,22 +1,15 @@
 (ns clj-mapdb.core
   (:import [org.mapdb DBMaker DB Fun$Tuple2]
-           [java.io DataInput DataOutput Serializable])
+           [clj_mapdb.serializers EdnSerializer])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
             [potemkin [types :refer [definterface+]]]
             [iroh.core :as iroh :refer [.?]]
-            [clojure.edn :as edn]))
+            [clj-mapdb.serializers]))
 
 (defn edn-serializer
   []
-  (reify
-    org.mapdb.Serializer
-    (serialize [this out obj]
-      (.writeUTF out (pr-str obj)))
-    (deserialize [this in available]
-      (edn/read-string (.readUTF in)))
-    (fixedSize [this] -1)
-    Serializable))
+  (EdnSerializer.))
 
 (defn base-serializer
   []
