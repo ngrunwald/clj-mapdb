@@ -26,3 +26,8 @@
 (expect 1 (with-tx [tx3 tx-mkr]
             (let [coll (.get tx3 "test1")]
               (count (.keySet coll)))))
+
+(def mirror (create-collection! db :tree-map "mirror1"))
+(bind :secondary-value hmap mirror (fn [old new] (inc new)))
+(.put hmap "test" 42)
+(expect 43 (.get mirror "test"))

@@ -1,5 +1,5 @@
 (ns clj-mapdb.core
-  (:import [org.mapdb DBMaker DB Fun$Tuple2]
+  (:import [org.mapdb DBMaker DB Fun$Tuple2 Bind]
            [clj_mapdb.serializers EdnSerializer])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -192,6 +192,20 @@
 (defn remove-listener
   [coll listener]
   (.modificationListenerRemove coll listener))
+
+(def bind-types {:secondary-value (fn [fun primary secondary] (Bind/secondaryValue primary secondary fun))
+                 :secondary-values (fn [fun primary secondary] (Bind/secondaryValues primary secondary fun))})
+
+(defn make-fun2
+  [f]
+  (reify org.mapdb.Fun$Function2
+    (run [this a b] (f a b))))
+
+(defn bind
+  [typ primary secondary f]
+  (let [fun (make-fun2 f)
+        bind-fn (get bind-types (keyword typ))]
+    (bind-fn fun primary secondary)))
 
 (defmacro with-tx
   [[tx tx-maker] & body]
