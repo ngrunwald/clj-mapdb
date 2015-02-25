@@ -174,6 +174,19 @@
   (delete [this k old-val] "Called when a key is deleted")
   (update [this k old-val new-val] "Called when a value is updated"))
 
+(defrecord Listener [adder deleter updater]
+  MapListener
+  (add [this k new-val] (adder k new-val))
+  (delete [this k old-val] (deleter k old-val))
+  (update [this k old-val new-val] (updater k old-val new-val)))
+
+(defn make-listener-spec
+  [& {:keys [add update delete]
+      :or {add (fn [_ _] nil)
+           delete (fn [_ _] nil)
+           update (fn [_ _ _] nil)}}]
+  (->Listener add delete update))
+
 (defn map-listener
   [f]
   (if (instance? MapListener f)
