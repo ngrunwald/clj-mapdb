@@ -10,24 +10,24 @@
 
 (expect org.mapdb.BTreeMap (.get db "test1"))
 
-(def tx-mkr (create-db :memory {:cache-disable true :fully-transactional? true}))
+(def tx-mkr (create-db :memory {:cache-disable true :fully-transactional? false}))
 
-(expect {:foo 42} (with-tx [tx1 tx-mkr]
-                    (create-collection! tx1 :tree-map "test1" {:counter-enable true})
-                    (let [coll (.get tx1 "test1")]
-                      (.put coll :foo 42)
-                      (into {} coll))))
+;; (expect {:foo 42} (with-tx [tx1 tx-mkr]
+;;                     (create-collection! tx1 :tree-map "test1" {:counter-enable true})
+;;                     (let [coll (.get tx1 "test1")]
+;;                       (.put coll :foo 42)
+;;                       (into {} coll))))
 
-(expect Exception (with-tx [tx2 tx-mkr]
-                    (let [coll (.get tx2 "test1")]
-                      (.put coll "bar" 84))
-                    (throw (Exception.))))
+;; (expect Exception (with-tx [tx2 tx-mkr]
+;;                     (let [coll (.get tx2 "test1")]
+;;                       (.put coll "bar" 84))
+;;                     (throw (Exception.))))
 
-(expect 1 (with-tx [tx3 tx-mkr]
-            (let [coll (.get tx3 "test1")]
-              (count (.keySet coll)))))
+;; (expect 1 (with-tx [tx3 tx-mkr]
+;;             (let [coll (.get tx3 "test1")]
+;;               (count (.keySet coll)))))
 
-(def mirror (create-collection! db :tree-map "mirror1"))
-(bind :secondary-value hmap mirror (fn [old new] (inc new)))
-(.put hmap "test" 42)
-(expect 43 (.get mirror "test"))
+;; (def mirror (create-collection! db :tree-map "mirror1"))
+;; (bind :secondary-value hmap mirror (fn [old new] (inc new)))
+;; (.put hmap "test" 42)
+;; (expect 43 (.get mirror "test"))

@@ -1,5 +1,5 @@
 (ns clj-mapdb.core
-  (:import [org.mapdb DBMaker DB Fun$Tuple2 Bind]
+  (:import [org.mapdb DBMaker DB]
            [clj_mapdb.serializers EdnSerializer])
   (:require [clojure.java.io :as io]
             [clojure.string :as str]
@@ -11,26 +11,24 @@
   []
   (EdnSerializer.))
 
-(defn base-serializer
-  []
-  (org.mapdb.SerializerBase.))
+;; (defn base-serializer
+;;   []
+;;   (org.mapdb.SerializerBase.))
 
-(defn base-btree-key-serializer
-  []
-  (org.mapdb.BTreeKeySerializer$BasicKeySerializer. (base-serializer)))
+;; (defn base-btree-key-serializer
+;;   []
+;;   (org.mapdb.BTreeKeySerializer$BasicKeySerializer. (base-serializer)))
 
-(defn edn-btree-key-serializer
-  []
-  (org.mapdb.BTreeKeySerializer$BasicKeySerializer. (edn-serializer)))
+;; (defn edn-btree-key-serializer
+;;   []
+;;   (org.mapdb.BTreeKeySerializer$BasicKeySerializer. (edn-serializer)))
 
 (def mapdb-types
-  {:cache         {:ctor (fn [size] (DBMaker/newCache size)) :args ["cache size"]}
-   :cache-direct  {:ctor (fn [size] (DBMaker/newCacheDirect size)) :args ["cache size"]}
-   :file          {:ctor (fn [file] (DBMaker/newFileDB (io/file file))) :args ["file path"]}
-   :heap          {:ctor #(DBMaker/newHeapDB)}
-   :memory        {:ctor #(DBMaker/newMemoryDB)}
-   :memory-direct {:ctor #(DBMaker/newMemoryDirectDB)}
-   :temp-file     {:ctor #(DBMaker/newTempFileDB)}})
+  {:file          {:ctor (fn [file] (DBMaker/fileDB (io/file file))) :args ["file path"]}
+   :heap          {:ctor #(DBMaker/heapDB)}
+   :memory        {:ctor #(DBMaker/memoryDB)}
+   :memory-direct {:ctor #(DBMaker/memoryDirectDB)}
+   :temp-file     {:ctor #(DBMaker/tempFileDB)}})
 
 (defn dasherize
   [s]
@@ -53,10 +51,12 @@
 
 (defn coll->iterator
   [coll]
-  (if (instance? java.util.Iterator coll)
-    coll
-    (let [^clojure.lang.ASeq tuples (map (fn [[k v]] (Fun$Tuple2. k v)) (seq coll))]
-      (.iterator tuples))))
+  coll
+  ;; (if (instance? java.util.Iterator coll)
+  ;;   coll
+  ;;   (let [^clojure.lang.ASeq tuples (map (fn [[k v]] (Fun$Tuple2. k v)) (seq coll))]
+  ;;     (.iterator tuples)))
+  )
 
 (defn make-options-table
   [klass]
@@ -67,36 +67,24 @@
 (def db-maker-options (make-options-table org.mapdb.DBMaker))
 
 (def coll-types
-  {:hash-map       {:ctor (fn [^DB mdb label] (.createHashMap mdb (name label)))
-                    :options (make-options-table org.mapdb.DB$HTreeMapMaker)}
-   :tree-map       {:ctor (fn [^DB mdb label] (.createTreeMap mdb (name label)))
-                    :options (make-options-table org.mapdb.DB$BTreeMapMaker)
-                    :finalizers {:long (fn [^org.mapdb.DB$BTreeMapMaker mkr] (.makeLongMap mkr))
-                                 :string (fn [^org.mapdb.DB$BTreeMapMaker mkr] (.makeStringMap mkr))}
+  {:hash-map       {:ctor (fn [^DB mdb label] (.hashMap mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$HashMapMaker)}
+   :tree-map       {:ctor (fn [^DB mdb label] (.treeMap mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$TreeMapMaker)
+                    :finalizers {:long (fn [^org.mapdb.DB$TreeMapMaker mkr] (.makeLongMap mkr))
+                                 :string (fn [^org.mapdb.DB$TreeMapMaker mkr] (.makeStringMap mkr))}
                     :formatters {:pump-source coll->iterator}}
-   :hash-set       {:ctor (fn [^DB mdb label] (.createHashSet mdb (name label)))
-                    :options (make-options-table org.mapdb.DB$HTreeSetMaker)}
-   :tree-set       {:ctor (fn [^DB mdb label] (.createTreeSet mdb (name label)))
-                    :options (make-options-table org.mapdb.DB$BTreeSetMaker)}
-   :int            {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicInteger mdb (name label) init))}
-   :long           {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicLong mdb (name label) init))}
-   :bool           {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicBoolean mdb (name label) init))}
-   :string         {:ctor (fn [^DB mdb label {:keys [init]}] (.createAtomicString mdb (name label) init))}
+   :hash-set       {:ctor (fn [^DB mdb label] (.hashSet mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$HashSetMaker)}
+   :tree-set       {:ctor (fn [^DB mdb label] (.treeSet mdb (name label)))
+                    :options (make-options-table org.mapdb.DB$TreeSetMaker)}
+   :int            {:ctor (fn [^DB mdb label {:keys [init]}] (.atomicInteger mdb (name label) init))}
+   :long           {:ctor (fn [^DB mdb label {:keys [init]}] (.atomicLong mdb (name label) init))}
+   :bool           {:ctor (fn [^DB mdb label {:keys [init]}] (.atomicBoolean mdb (name label) init))}
+   :string         {:ctor (fn [^DB mdb label {:keys [init]}] (.atomicString mdb (name label) init))}
    :var            {:ctor (fn [^DB mdb label {:keys [init serializer]
                                               :or {serializer (edn-serializer)}}]
-                            (.createAtomicVar mdb (name label) init serializer))}
-   :queue          {:ctor (fn [^DB mdb label {:keys [serializer locks]
-                                              :or {serializer (edn-serializer)
-                                                   locking? false}}]
-                            (.createQueue mdb (name label) serializer locks))}
-   :stack          {:ctor (fn [^DB mdb label {:keys [serializer locks]
-                                              :or {serializer (edn-serializer)
-                                                   locking? false}}]
-                            (.createStack mdb (name label) serializer locks))}
-   :circular-queue {:ctor (fn [^DB mdb label {:keys [serializer size]
-                                              :or {serializer (edn-serializer)
-                                                   locking? false}}]
-                            (.createCircularQueue mdb (name label) serializer size))}})
+                            (.atomicVar mdb (name label) init serializer))}})
 
 (defn apply-configurator!
   [f maker v]
@@ -162,9 +150,10 @@
                                       (ctor arg))
                                     (ctor))]
      (configure-maker! db-maker-options maker opts)
-     (if (:fully-transactional? opts)
-       (.makeTxMaker maker)
-       (.make maker))))
+     ;; (if (:fully-transactional? opts)
+     ;;   (.makeTxMaker maker)
+     ;;   (.make maker))
+     ))
   ([db-type other] (if (map? other) (create-db db-type nil other) (create-db other {})))
   ([db-type] (create-db db-type nil {}))
   ([] (create-db :heap nil {})))
@@ -187,38 +176,38 @@
            update (fn [_ _ _] nil)}}]
   (->Listener add delete update))
 
-(defn map-listener
-  [f]
-  (if (instance? MapListener f)
-    (reify org.mapdb.Bind$MapListener
-      (update [this k old-val new-val] (cond
-                                         (nil? old-val) (.add ^MapListener f k new-val)
-                                         (nil? new-val) (.delete ^MapListener f k old-val)
-                                         :else (.update ^MapListener f k old-val new-val))))
-    (reify org.mapdb.Bind$MapListener
-      (update [this k old-val new-val] (f k old-val new-val)))))
+;; (defn map-listener
+;;   [f]
+;;   (if (instance? MapListener f)
+;;     (reify org.mapdb.Bind$MapListener
+;;       (update [this k old-val new-val] (cond
+;;                                          (nil? old-val) (.add ^MapListener f k new-val)
+;;                                          (nil? new-val) (.delete ^MapListener f k old-val)
+;;                                          :else (.update ^MapListener f k old-val new-val))))
+;;     (reify org.mapdb.Bind$MapListener
+;;       (update [this k old-val new-val] (f k old-val new-val)))))
 
-(defn add-listener
-  [coll listener]
-  (.modificationListenerAdd coll listener))
+;; (defn add-listener
+;;   [coll listener]
+;;   (.modificationListenerAdd coll listener))
 
-(defn remove-listener
-  [coll listener]
-  (.modificationListenerRemove coll listener))
+;; (defn remove-listener
+;;   [coll listener]
+;;   (.modificationListenerRemove coll listener))
 
-(def bind-types {:secondary-value (fn [fun primary secondary] (Bind/secondaryValue primary secondary fun))
-                 :secondary-values (fn [fun primary secondary] (Bind/secondaryValues primary secondary fun))})
+;; (def bind-types {:secondary-value (fn [fun primary secondary] (Bind/secondaryValue primary secondary fun))
+;;                  :secondary-values (fn [fun primary secondary] (Bind/secondaryValues primary secondary fun))})
 
-(defn make-fun2
-  [f]
-  (reify org.mapdb.Fun$Function2
-    (run [this a b] (f a b))))
+;; (defn make-fun2
+;;   [f]
+;;   (reify org.mapdb.Fun$Function2
+;;     (run [this a b] (f a b))))
 
-(defn bind
-  [typ primary secondary f]
-  (let [fun (make-fun2 f)
-        bind-fn (get bind-types (keyword typ))]
-    (bind-fn fun primary secondary)))
+;; (defn bind
+;;   [typ primary secondary f]
+;;   (let [fun (make-fun2 f)
+;;         bind-fn (get bind-types (keyword typ))]
+;;     (bind-fn fun primary secondary)))
 
 (defmacro with-tx
   [[tx tx-maker] & body]
