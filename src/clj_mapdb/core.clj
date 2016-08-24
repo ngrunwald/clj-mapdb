@@ -150,10 +150,9 @@
                                       (ctor arg))
                                     (ctor))]
      (configure-maker! db-maker-options maker opts)
-     ;; (if (:fully-transactional? opts)
-     ;;   (.makeTxMaker maker)
-     ;;   (.make maker))
-     ))
+     (when (:fully-transactional? opts)
+       (.transactionEnable maker))
+     (.make maker)))
   ([db-type other] (if (map? other) (create-db db-type nil other) (create-db other {})))
   ([db-type] (create-db db-type nil {}))
   ([] (create-db :heap nil {})))
